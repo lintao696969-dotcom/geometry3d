@@ -1,0 +1,70 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/main.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install packaging tools
+        run: npm install --save-dev electron-builder@26.15.3 @types/three@0.165.0
+
+      - name: Build interface
+        run: |
+          npx tsc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx vite build --base ./
+
+      - name: Configure installer
+        shell: bash
+        run: |
+          node <<'JS'
+          const fs = require('fs');
+          const config = {
+            appId: 'com.geometry3d.desktop',
+            productName: '几何3D',
+            directories: { output: 'release' },
+            files: ['dist/**/*', 'electron/**/*', 'package.json'],
+            win: {
+              target: [{ target: 'nsis', arch: ['x64'] }],
+              signAndEditExecutable: false
+            },
+            nsis: {
+              oneClick: false,
+              perMachine: false,
+              allowToChangeInstallationDirectory: true,
+              createDesktopShortcut: true,
+              createStartMenuShortcut: true,
+              artifactName: 'Geometry3D-Setup-${version}-${arch}.${ext}'
+            }
+          };
+          fs.writeFileSync('installer-config.json', JSON.stringify(config));
+          JS
+
+      - name: Create Windows installer
+        run: npx electron-builder --config installer-config.json --win nsis --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Geometry3D-Windows-Installer
+          path: release/*Setup*.exe
+          if-no-files-found: error
